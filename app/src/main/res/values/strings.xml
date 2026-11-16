@@ -1,0 +1,22 @@
+<resources>
+    <string name="app_name">BudsPulse</string>
+    <string name="notification_channel_name">Заряд TWS наушников</string>
+    <string name="notification_channel_description">Постоянный виджет в шторке уведомлений с зарядом левого, правого наушника и кейса</string>
+    <string name="notification_alert_channel_name">Низкий заряд наушников</string>
+    <string name="notification_alert_channel_desc">Предупреждения при разряде наушников или кейса</string>
+    <string name="action_refresh">Обновить</string>
+    <string name="action_hide_widget">Скрыть</string>
+    <string name="status_waiting_connection">Ожидание наушников</string>
+    <string name="status_connected">Подключены</string>
+    <string name="status_scanning">Поиск BLE телеметрии…</string>
+    <string name="label_left_bud">Левый</string>
+    <string name="label_right_bud">Правый</string>
+    <string name="label_case">Кейс</string>
+    <string name="label_charging">Зарядка</string>
+    <string name="tab_monitor">Монитор</string>
+    <string name="tab_devices">Устройства</string>
+    <string name="tab_settings">Настройки</string>
+    <string name="cd_hero_earbuds">Беспроводные TWS наушники и зарядный кейс</string>
+    <string name="cd_bluetooth_status">Статус Bluetooth соединения</string>
+    <string name="cd_refresh_telemetry">Обновить заряд наушников</string>
+</resources>

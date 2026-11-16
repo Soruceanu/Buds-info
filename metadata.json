@@ -1,0 +1,6 @@
+{
+  "name": "BudsPulse",
+  "description": "Виджет заряда Xiaomi и TWS наушников в шторке уведомлений с автозапуском при подключении.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
