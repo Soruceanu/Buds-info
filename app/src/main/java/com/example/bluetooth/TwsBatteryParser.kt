@@ -133,10 +133,15 @@ object TwsBatteryParser {
           val bC = data[offset + 2].toInt() and 0xFF
           if (bL == 0 && bR == 0 && bC == 0) continue
           val candidate = buildFromThreeBytes(bL, bR, bC, BatteryProtocol.XIAOMI_BLE)
-          if (candidate != null && (candidate.leftPercent != null && candidate.rightPercent != null)) {
+          val hasBothBuds = candidate?.leftPercent != null && candidate.rightPercent != null
+          val hasSingleBudWithExplicitSentinel =
+            candidate != null &&
+              ((candidate.leftPercent != null) xor (candidate.rightPercent != null)) &&
+              (bL == 0x7F || bR == 0x7F || candidate.casePercent != null)
+          if (hasBothBuds || hasSingleBudWithExplicitSentinel) {
             val lidByte = data.getOrNull(offset - 1)?.toInt()?.and(0xFF)
             val isLidOpen = if (lidByte != null && (lidByte and 0x01) != 0) true else null
-            return candidate.copy(isLidOpen = isLidOpen)
+            return candidate!!.copy(isLidOpen = isLidOpen)
           }
         }
       }

@@ -93,6 +93,7 @@ class TwsMonitorService : Service() {
 
   override fun onCreate() {
     super.onCreate()
+    isRunning = true
     repository = TwsMonitorRepository.getInstance(this)
     registerDynamicReceiver()
     startScreenOnClassicSync()
@@ -103,10 +104,15 @@ class TwsMonitorService : Service() {
     refreshJob =
       serviceScope.launch {
         val powerManager = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        var tickCount = 0
         while (true) {
           delay(30_000L)
           if (powerManager?.isInteractive == true && repository.batteryState.value.isConnected) {
+            tickCount += 1
             repository.refreshConnectedAudioDevices()
+            if (tickCount % 2 == 0) {
+              repository.startBleTelemetryScan(durationMs = 4_000L)
+            }
           }
         }
       }
@@ -149,6 +155,7 @@ class TwsMonitorService : Service() {
 
   override fun onDestroy() {
     super.onDestroy()
+    isRunning = false
     refreshJob?.cancel()
     serviceScope.cancel()
     if (receiverRegistered) {
@@ -208,6 +215,7 @@ class TwsMonitorService : Service() {
   companion object {
     const val ACTION_BATTERY_LEVEL_CHANGED = "android.bluetooth.device.action.BATTERY_LEVEL_CHANGED"
     const val EXTRA_BATTERY_LEVEL = "android.bluetooth.device.extra.BATTERY_LEVEL"
+    @Volatile var isRunning: Boolean = false
 
     fun startIfPermitted(context: Context) {
       val repo = TwsMonitorRepository.getInstance(context)

@@ -235,19 +235,32 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
         nextRightChg = current.isRightCharging
         nextCaseChg = current.isCaseCharging
       } else {
-        // Case is closed / BLE stopped: do NOT show stale closed case,
+        // Case is closed / BLE stopped: do NOT show stale closed case or bud charging inside closed case,
         // and update active bud(s) with fresh live Bluetooth Classic battery level!
         nextCase = null
         nextCaseChg = false
         nextLeftChg = false
         nextRightChg = false
-        if (sameDevice && (current.leftPercent != null) != (current.rightPercent != null)) {
-          // One bud was previously active and the other was in the closed case
-          nextLeft = if (current.leftPercent != null) (classicPct ?: current.leftPercent) else null
-          nextRight = if (current.rightPercent != null) (classicPct ?: current.rightPercent) else null
-        } else {
-          nextLeft = classicPct ?: current.leftPercent
-          nextRight = classicPct ?: current.rightPercent
+        val leftWasInClosedCase = sameDevice && current.isLeftCharging && !current.isRightCharging
+        val rightWasInClosedCase = sameDevice && current.isRightCharging && !current.isLeftCharging
+        val singleBudOnly = sameDevice && ((current.leftPercent != null) != (current.rightPercent != null))
+        when {
+          leftWasInClosedCase -> {
+            nextLeft = null
+            nextRight = classicPct ?: current.rightPercent
+          }
+          rightWasInClosedCase -> {
+            nextLeft = classicPct ?: current.leftPercent
+            nextRight = null
+          }
+          singleBudOnly -> {
+            nextLeft = if (current.leftPercent != null) (classicPct ?: current.leftPercent) else null
+            nextRight = if (current.rightPercent != null) (classicPct ?: current.rightPercent) else null
+          }
+          else -> {
+            nextLeft = classicPct ?: current.leftPercent
+            nextRight = classicPct ?: current.rightPercent
+          }
         }
       }
 
@@ -306,6 +319,9 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
       _batteryState.value = updated
       if (updated.isShadeWidgetActive) {
         TwsNotificationHelper.showOrUpdateShadeWidget(appContext, updated, _settings.value)
+        if (!TwsMonitorService.isRunning) {
+          TwsMonitorService.startIfPermitted(appContext)
+        }
       }
       if (!lowBatteryAlertSentForSession) {
         val minBud = updated.minimumBudBattery
@@ -398,19 +414,25 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
     val bleIsFresh =
       hasActiveBlePerBudTelemetry && (System.currentTimeMillis() - lastBlePacketMs) < 20_000L
 
+    val leftWasInClosedCase = current.isLeftCharging && !current.isRightCharging
+    val rightWasInClosedCase = current.isRightCharging && !current.isLeftCharging
+    val singleBudOnly = (current.leftPercent != null) != (current.rightPercent != null)
+
     val nextLeft =
-      if (bleIsFresh) current.leftPercent
-      else if ((current.leftPercent != null) != (current.rightPercent != null)) {
-        if (current.leftPercent != null) stepped else null
-      } else {
-        stepped
+      when {
+        bleIsFresh -> current.leftPercent
+        leftWasInClosedCase -> null
+        rightWasInClosedCase -> stepped
+        singleBudOnly -> if (current.leftPercent != null) stepped else null
+        else -> stepped
       }
     val nextRight =
-      if (bleIsFresh) current.rightPercent
-      else if ((current.leftPercent != null) != (current.rightPercent != null)) {
-        if (current.rightPercent != null) stepped else null
-      } else {
-        stepped
+      when {
+        bleIsFresh -> current.rightPercent
+        rightWasInClosedCase -> null
+        leftWasInClosedCase -> stepped
+        singleBudOnly -> if (current.rightPercent != null) stepped else null
+        else -> stepped
       }
     val nextCase = if (bleIsFresh) current.casePercent else null
 
@@ -584,11 +606,14 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
     if (isPerBudProtocol) {
       lastBlePacketMs = System.currentTimeMillis()
       hasActiveBlePerBudTelemetry = true
-      // Explicitly null (0x7F) means bud or closed case is absent — hide it instead of keeping stale data!
-      nextLeft = TwsBatteryParser.quantizeToFive(payload.leftPercent)
-      nextRight = TwsBatteryParser.quantizeToFive(payload.rightPercent)
+      // Explicitly null (0x7F) or closed lid means closed case (and any bud charging inside it) is hidden
+      val lidClosed = payload.isLidOpen == false
+      val rawLeft = TwsBatteryParser.quantizeToFive(payload.leftPercent)
+      val rawRight = TwsBatteryParser.quantizeToFive(payload.rightPercent)
+      nextLeft = if (lidClosed && payload.isLeftCharging && !payload.isRightCharging) null else rawLeft
+      nextRight = if (lidClosed && payload.isRightCharging && !payload.isLeftCharging) null else rawRight
       nextCase =
-        if (payload.isLidOpen == false) null
+        if (lidClosed) null
         else TwsBatteryParser.quantizeToFive(payload.casePercent)
     } else {
       nextLeft = TwsBatteryParser.quantizeToFive(payload.leftPercent) ?: current.leftPercent

@@ -71,6 +71,30 @@ class TwsBatteryParserTest {
   }
 
   @Test
+  fun `parseXiaomiBleData decodes single bud when other bud and case are 0x7F`() {
+    val payload =
+      byteArrayOf(
+        0x01,
+        0x02,
+        0x03,
+        0x04,
+        0x05,
+        0x06,
+        0x07,
+        0x00,
+        0x7F.toByte(), // left bud inside closed case
+        85.toByte(),   // right bud active
+        0x7F.toByte(), // closed case
+        0x00,
+      )
+    val parsed = TwsBatteryParser.parseXiaomiBleData(payload)
+    assertNotNull(parsed)
+    assertNull(parsed!!.leftPercent)
+    assertEquals(85, parsed.rightPercent)
+    assertNull(parsed.casePercent)
+  }
+
+  @Test
   fun `parseAppleProximityData decodes L R Case nibbles`() {
     val payload = ByteArray(12)
     payload[0] = 0x07
