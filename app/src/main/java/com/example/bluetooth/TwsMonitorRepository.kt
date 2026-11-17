@@ -65,6 +65,8 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
   private var lastWakeRefreshMs = 0L
   private var lastBlePacketMs = 0L
   private var hasActiveBlePerBudTelemetry = false
+  private var recentFastPairLidOpen: Boolean? = null
+  private var recentFastPairLidMs = 0L
 
   private val profileListener =
     object : BluetoothProfile.ServiceListener {
@@ -387,6 +389,9 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
       return
     }
     lowBatteryAlertSentForSession = false
+    hasActiveBlePerBudTelemetry = false
+    recentFastPairLidOpen = null
+    recentFastPairLidMs = 0L
     closeGatt()
     stopBleTelemetryScan()
 
@@ -567,6 +572,14 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
 
     var parsed: ParsedBatteryPayload? = null
 
+    val fastPairPayload =
+      record.getServiceData(android.os.ParcelUuid(UUID.fromString(TwsBatteryParser.FAST_PAIR_UUID)))
+        ?.let { TwsBatteryParser.parseFastPairData(it) }
+    if (fastPairPayload?.isLidOpen != null) {
+      recentFastPairLidOpen = fastPairPayload.isLidOpen
+      recentFastPairLidMs = System.currentTimeMillis()
+    }
+
     // 1. Xiaomi Service Data (0xFD2D / 0xFE95)
     record.getServiceData(android.os.ParcelUuid(UUID.fromString(TwsBatteryParser.XIAOMI_FAST_CONNECT_UUID)))
       ?.let { parsed = TwsBatteryParser.parseXiaomiBleData(it) }
@@ -587,8 +600,7 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
     }
     // 3. Google Fast Pair (0xFE2C)
     if (parsed == null) {
-      record.getServiceData(android.os.ParcelUuid(UUID.fromString(TwsBatteryParser.FAST_PAIR_UUID)))
-        ?.let { parsed = TwsBatteryParser.parseFastPairData(it) }
+      parsed = fastPairPayload
     }
     // 4. Apple / Universal Proximity BLE (0x004C)
     if (parsed == null && (isSameAddress || isKnownName || current.brandPreset == EarbudBrandPreset.APPLE_CLONE)) {
@@ -597,7 +609,19 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
       }
     }
 
-    val validPayload = parsed ?: return
+    var validPayload = parsed ?: return
+    if (validPayload.isLidOpen == null) {
+      val recentLid =
+        if (System.currentTimeMillis() - recentFastPairLidMs < BLE_FRESH_TIMEOUT_MS) {
+          recentFastPairLidOpen
+        } else {
+          null
+        }
+      val resolvedLid = fastPairPayload?.isLidOpen ?: recentLid
+      if (resolvedLid != null) {
+        validPayload = validPayload.copy(isLidOpen = resolvedLid)
+      }
+    }
     if (current.isConnected && !isSameAddress && !isKnownName && current.deviceAddress != null) {
       // Redmi Buds / Fast Pair devices often rotate BLE RPA MAC addresses independently of Classic MAC;
       // enforce close RSSI proximity (-80 dBm) to ignore distant neighboring earbuds.

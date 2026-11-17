@@ -106,7 +106,9 @@ object TwsBatteryParser {
               data[idx + 3].toInt(),
               BatteryProtocol.FAST_PAIR_BLE,
             )
-          if (parsed != null) return parsed
+          if (parsed != null) {
+            return parsed.copy(isLidOpen = (type == 0x03))
+          }
         }
         idx += 1 + length
       }

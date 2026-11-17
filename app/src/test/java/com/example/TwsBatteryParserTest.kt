@@ -39,7 +39,27 @@ class TwsBatteryParserTest {
     assertFalse(parsed.isLeftCharging)
     assertTrue(parsed.isRightCharging)
     assertTrue(parsed.isCaseCharging)
+    assertEquals(true, parsed.isLidOpen)
     assertEquals(BatteryProtocol.FAST_PAIR_BLE, parsed.protocol)
+  }
+
+  @Test
+  fun `parseFastPairData marks type 0x04 as closed lid`() {
+    // Version 0x00, header 0x34 (len=3, type=4 = Hide UI / lid closed)
+    val payload =
+      byteArrayOf(
+        0x00,
+        0x34,
+        (0x80 or 90).toByte(),
+        85.toByte(),
+        70.toByte(),
+      )
+    val parsed = TwsBatteryParser.parseFastPairData(payload)
+    assertNotNull(parsed)
+    assertEquals(false, parsed!!.isLidOpen)
+    assertEquals(90, parsed.leftPercent)
+    assertEquals(85, parsed.rightPercent)
+    assertEquals(70, parsed.casePercent)
   }
 
   @Test

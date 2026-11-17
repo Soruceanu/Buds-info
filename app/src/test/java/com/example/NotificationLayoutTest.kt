@@ -43,7 +43,7 @@ class NotificationLayoutTest {
 
     val notification = TwsNotificationHelper.buildShadeWidgetNotification(context, state, settings)
     assertNotNull(notification.contentView)
-    assertNotNull(notification.bigContentView)
+    assertEquals(null, notification.bigContentView)
     assertEquals(false, notification.extras.getBoolean(android.app.Notification.EXTRA_SHOW_WHEN, true))
 
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -58,10 +58,23 @@ class NotificationLayoutTest {
     assertEquals(View.GONE, compactView.findViewById<View>(R.id.compact_case_container).visibility)
     assertEquals("П: 90%", compactView.findViewById<TextView>(R.id.compact_right_text).text.toString())
 
-    val expandedView = notification.bigContentView.apply(context, parent)
-    assertEquals(View.GONE, expandedView.findViewById<View>(R.id.expanded_left_container).visibility)
-    assertEquals(View.VISIBLE, expandedView.findViewById<View>(R.id.expanded_right_container).visibility)
-    assertEquals(View.GONE, expandedView.findViewById<View>(R.id.expanded_case_container).visibility)
-    assertEquals("П: 90%", expandedView.findViewById<TextView>(R.id.expanded_right_pct).text.toString())
+    // Open case with left bud charging and right bud in ear
+    val openCaseState =
+      state.copy(
+        leftPercent = 98,
+        isLeftCharging = true,
+        casePercent = 72,
+        isLidOpen = true,
+      )
+    val openNotification =
+      TwsNotificationHelper.buildShadeWidgetNotification(context, openCaseState, settings)
+    val openCompactView = openNotification.contentView.apply(context, parent)
+    assertEquals(View.VISIBLE, openCompactView.findViewById<View>(R.id.compact_left_container).visibility)
+    assertEquals(View.VISIBLE, openCompactView.findViewById<View>(R.id.compact_left_bolt).visibility)
+    assertEquals("Л: 100%", openCompactView.findViewById<TextView>(R.id.compact_left_text).text.toString())
+    assertEquals(View.VISIBLE, openCompactView.findViewById<View>(R.id.compact_right_container).visibility)
+    assertEquals(View.GONE, openCompactView.findViewById<View>(R.id.compact_right_bolt).visibility)
+    assertEquals(View.VISIBLE, openCompactView.findViewById<View>(R.id.compact_case_container).visibility)
+    assertEquals("К: 70%", openCompactView.findViewById<TextView>(R.id.compact_case_text).text.toString())
   }
 }

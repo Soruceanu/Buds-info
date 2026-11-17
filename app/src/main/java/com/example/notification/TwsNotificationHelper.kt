@@ -114,7 +114,6 @@ object TwsNotificationHelper {
 
     val snapshot = WidgetSnapshot.from(state, settings)
     val compactViews = buildCompactRemoteViews(context, snapshot)
-    val expandedViews = buildExpandedRemoteViews(context, snapshot)
     val summaryText = formatSummaryLine(state)
 
     return NotificationCompat.Builder(context, CHANNEL_WIDGET_ID)
@@ -124,7 +123,6 @@ object TwsNotificationHelper {
       .setContentIntent(openAppIntent)
       .setStyle(NotificationCompat.DecoratedCustomViewStyle())
       .setCustomContentView(compactViews)
-      .setCustomBigContentView(expandedViews)
       .setShowWhen(false)
       .setWhen(0L)
       .setOngoing(true)
@@ -248,49 +246,6 @@ object TwsNotificationHelper {
       boltId = R.id.compact_case_bolt,
       prefix = "К",
       percent = if (snapshot.showCaseInCompact) snapshot.casePercent else null,
-      isCharging = snapshot.isCaseCharging,
-      isDark = isDark,
-    )
-
-    return views
-  }
-
-  private fun buildExpandedRemoteViews(
-    context: Context,
-    snapshot: WidgetSnapshot,
-  ): RemoteViews {
-    val views = RemoteViews(context.packageName, R.layout.notification_tws_expanded)
-    val isDark = isSystemDarkTheme(context)
-
-    bindSlot(
-      views = views,
-      containerId = R.id.expanded_left_container,
-      textId = R.id.expanded_left_pct,
-      boltId = R.id.left_charging_bolt,
-      prefix = "Л",
-      percent = snapshot.leftPercent,
-      isCharging = snapshot.isLeftCharging,
-      isDark = isDark,
-    )
-
-    bindSlot(
-      views = views,
-      containerId = R.id.expanded_right_container,
-      textId = R.id.expanded_right_pct,
-      boltId = R.id.right_charging_bolt,
-      prefix = "П",
-      percent = snapshot.rightPercent,
-      isCharging = snapshot.isRightCharging,
-      isDark = isDark,
-    )
-
-    bindSlot(
-      views = views,
-      containerId = R.id.expanded_case_container,
-      textId = R.id.expanded_case_pct,
-      boltId = R.id.case_charging_bolt,
-      prefix = "К",
-      percent = snapshot.casePercent,
       isCharging = snapshot.isCaseCharging,
       isDark = isDark,
     )
