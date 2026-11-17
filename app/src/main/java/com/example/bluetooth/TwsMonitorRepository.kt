@@ -62,6 +62,8 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
   private var bleScanJob: Job? = null
   private var lowBatteryAlertSentForSession = false
   private var lastWakeRefreshMs = 0L
+  private var lastBlePacketMs = 0L
+  private var hasActiveBlePerBudTelemetry = false
 
   private val profileListener =
     object : BluetoothProfile.ServiceListener {
@@ -215,11 +217,42 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
       val current = _batteryState.value
       val sameDevice = current.deviceAddress == activeDevice.address && current.isConnected
       val classicPct = TwsBatteryParser.quantizeToFive(activeDevice.classicBatteryPercent)
+      val bleIsFresh =
+        hasActiveBlePerBudTelemetry && (System.currentTimeMillis() - lastBlePacketMs) < 20_000L
 
-      val nextLeft = current.leftPercent ?: classicPct
-      val nextRight = current.rightPercent ?: classicPct
+      val nextLeft: Int?
+      val nextRight: Int?
+      val nextCase: Int?
+      val nextLeftChg: Boolean
+      val nextRightChg: Boolean
+      val nextCaseChg: Boolean
+
+      if (bleIsFresh) {
+        nextLeft = current.leftPercent
+        nextRight = current.rightPercent
+        nextCase = current.casePercent
+        nextLeftChg = current.isLeftCharging
+        nextRightChg = current.isRightCharging
+        nextCaseChg = current.isCaseCharging
+      } else {
+        // Case is closed / BLE stopped: do NOT show stale closed case,
+        // and update active bud(s) with fresh live Bluetooth Classic battery level!
+        nextCase = null
+        nextCaseChg = false
+        nextLeftChg = false
+        nextRightChg = false
+        if (sameDevice && (current.leftPercent != null) != (current.rightPercent != null)) {
+          // One bud was previously active and the other was in the closed case
+          nextLeft = if (current.leftPercent != null) (classicPct ?: current.leftPercent) else null
+          nextRight = if (current.rightPercent != null) (classicPct ?: current.rightPercent) else null
+        } else {
+          nextLeft = classicPct ?: current.leftPercent
+          nextRight = classicPct ?: current.rightPercent
+        }
+      }
+
       val nextProtocol =
-        if (current.protocolSource == BatteryProtocol.DISCONNECTED) {
+        if (current.protocolSource == BatteryProtocol.DISCONNECTED || !bleIsFresh) {
           BatteryProtocol.BLUETOOTH_CLASSIC
         } else {
           current.protocolSource
@@ -230,6 +263,10 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
           if (current.deviceName == activeDevice.name &&
               current.leftPercent == nextLeft &&
               current.rightPercent == nextRight &&
+              current.casePercent == nextCase &&
+              current.isLeftCharging == nextLeftChg &&
+              current.isRightCharging == nextRightChg &&
+              current.isCaseCharging == nextCaseChg &&
               current.protocolSource == nextProtocol) {
             return
           }
@@ -237,11 +274,16 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
             deviceName = activeDevice.name,
             leftPercent = nextLeft,
             rightPercent = nextRight,
+            casePercent = nextCase,
+            isLeftCharging = nextLeftChg,
+            isRightCharging = nextRightChg,
+            isCaseCharging = nextCaseChg,
             protocolSource = nextProtocol,
             lastUpdatedMillis = System.currentTimeMillis(),
           )
         } else {
           lowBatteryAlertSentForSession = false
+          hasActiveBlePerBudTelemetry = false
           TwsBatteryState(
             deviceName = activeDevice.name,
             deviceAddress = activeDevice.address,
@@ -272,8 +314,8 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
           TwsNotificationHelper.maybePostLowBatteryAlert(appContext, updated, _settings.value)
         }
       }
-      // Also probe BLE GATT Battery Service if per-bud levels are still missing
-      if (updated.casePercent == null) {
+      // Probe BLE GATT Battery Service only when newly connected or if Classic battery is unavailable
+      if ((!sameDevice || activeDevice.classicBatteryPercent == null) && !bleIsFresh) {
         bonded.firstOrNull { it.address == activeDevice.address }?.let { queryGattBattery(it) }
       }
     } else if (!_batteryState.value.isPreviewMode) {
@@ -353,13 +395,36 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
       return
     }
     val stepped = TwsBatteryParser.quantizeToFive(level) ?: return
-    if (current.leftPercent == stepped && current.rightPercent == stepped && current.isConnected) {
+    val bleIsFresh =
+      hasActiveBlePerBudTelemetry && (System.currentTimeMillis() - lastBlePacketMs) < 20_000L
+
+    val nextLeft =
+      if (bleIsFresh) current.leftPercent
+      else if ((current.leftPercent != null) != (current.rightPercent != null)) {
+        if (current.leftPercent != null) stepped else null
+      } else {
+        stepped
+      }
+    val nextRight =
+      if (bleIsFresh) current.rightPercent
+      else if ((current.leftPercent != null) != (current.rightPercent != null)) {
+        if (current.rightPercent != null) stepped else null
+      } else {
+        stepped
+      }
+    val nextCase = if (bleIsFresh) current.casePercent else null
+
+    if (current.leftPercent == nextLeft &&
+        current.rightPercent == nextRight &&
+        current.casePercent == nextCase &&
+        current.isConnected) {
       return
     }
     val updated =
       current.copy(
-        leftPercent = current.leftPercent ?: stepped,
-        rightPercent = current.rightPercent ?: stepped,
+        leftPercent = nextLeft,
+        rightPercent = nextRight,
+        casePercent = nextCase,
         isConnected = true,
         lastUpdatedMillis = System.currentTimeMillis(),
       )
@@ -507,9 +572,29 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
 
   private fun applyParsedTelemetry(payload: ParsedBatteryPayload, rssi: Int?) {
     val current = _batteryState.value
-    val nextLeft = TwsBatteryParser.quantizeToFive(payload.leftPercent) ?: current.leftPercent
-    val nextRight = TwsBatteryParser.quantizeToFive(payload.rightPercent) ?: current.rightPercent
-    val nextCase = TwsBatteryParser.quantizeToFive(payload.casePercent) ?: current.casePercent
+    val isPerBudProtocol =
+      payload.protocol == BatteryProtocol.XIAOMI_BLE ||
+        payload.protocol == BatteryProtocol.FAST_PAIR_BLE ||
+        payload.protocol == BatteryProtocol.APPLE_PROXIMITY_BLE
+
+    val nextLeft: Int?
+    val nextRight: Int?
+    val nextCase: Int?
+
+    if (isPerBudProtocol) {
+      lastBlePacketMs = System.currentTimeMillis()
+      hasActiveBlePerBudTelemetry = true
+      // Explicitly null (0x7F) means bud or closed case is absent — hide it instead of keeping stale data!
+      nextLeft = TwsBatteryParser.quantizeToFive(payload.leftPercent)
+      nextRight = TwsBatteryParser.quantizeToFive(payload.rightPercent)
+      nextCase =
+        if (payload.isLidOpen == false) null
+        else TwsBatteryParser.quantizeToFive(payload.casePercent)
+    } else {
+      nextLeft = TwsBatteryParser.quantizeToFive(payload.leftPercent) ?: current.leftPercent
+      nextRight = TwsBatteryParser.quantizeToFive(payload.rightPercent) ?: current.rightPercent
+      nextCase = TwsBatteryParser.quantizeToFive(payload.casePercent)
+    }
 
     val telemetryChanged =
       nextLeft != current.leftPercent ||

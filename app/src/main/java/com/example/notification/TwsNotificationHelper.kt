@@ -204,10 +204,11 @@ object TwsNotificationHelper {
   }
 
   fun formatSummaryLine(state: TwsBatteryState): String {
-    val l = TwsBatteryParser.quantizeToFive(state.leftPercent)?.let { "$it%" } ?: "—"
-    val r = TwsBatteryParser.quantizeToFive(state.rightPercent)?.let { "$it%" } ?: "—"
-    val c = TwsBatteryParser.quantizeToFive(state.casePercent)?.let { "$it%" } ?: "—"
-    return "Л: $l  П: $r  К: $c"
+    val parts = mutableListOf<String>()
+    TwsBatteryParser.quantizeToFive(state.leftPercent)?.let { parts += "Л: $it%" }
+    TwsBatteryParser.quantizeToFive(state.rightPercent)?.let { parts += "П: $it%" }
+    TwsBatteryParser.quantizeToFive(state.casePercent)?.let { parts += "К: $it%" }
+    return if (parts.isEmpty()) "Подключены" else parts.joinToString("  ")
   }
 
   private fun buildCompactRemoteViews(
@@ -219,6 +220,7 @@ object TwsNotificationHelper {
 
     bindSlot(
       views = views,
+      containerId = R.id.compact_left_container,
       textId = R.id.compact_left_text,
       boltId = R.id.compact_left_bolt,
       prefix = "Л",
@@ -229,6 +231,7 @@ object TwsNotificationHelper {
 
     bindSlot(
       views = views,
+      containerId = R.id.compact_right_container,
       textId = R.id.compact_right_text,
       boltId = R.id.compact_right_bolt,
       prefix = "П",
@@ -237,20 +240,16 @@ object TwsNotificationHelper {
       isDark = isDark,
     )
 
-    if (snapshot.showCaseInCompact) {
-      views.setViewVisibility(R.id.compact_case_container, View.VISIBLE)
-      bindSlot(
-        views = views,
-        textId = R.id.compact_case_text,
-        boltId = R.id.compact_case_bolt,
-        prefix = "К",
-        percent = snapshot.casePercent,
-        isCharging = snapshot.isCaseCharging,
-        isDark = isDark,
-      )
-    } else {
-      views.setViewVisibility(R.id.compact_case_container, View.GONE)
-    }
+    bindSlot(
+      views = views,
+      containerId = R.id.compact_case_container,
+      textId = R.id.compact_case_text,
+      boltId = R.id.compact_case_bolt,
+      prefix = "К",
+      percent = if (snapshot.showCaseInCompact) snapshot.casePercent else null,
+      isCharging = snapshot.isCaseCharging,
+      isDark = isDark,
+    )
 
     return views
   }
@@ -264,6 +263,7 @@ object TwsNotificationHelper {
 
     bindSlot(
       views = views,
+      containerId = R.id.expanded_left_container,
       textId = R.id.expanded_left_pct,
       boltId = R.id.left_charging_bolt,
       prefix = "Л",
@@ -274,6 +274,7 @@ object TwsNotificationHelper {
 
     bindSlot(
       views = views,
+      containerId = R.id.expanded_right_container,
       textId = R.id.expanded_right_pct,
       boltId = R.id.right_charging_bolt,
       prefix = "П",
@@ -284,6 +285,7 @@ object TwsNotificationHelper {
 
     bindSlot(
       views = views,
+      containerId = R.id.expanded_case_container,
       textId = R.id.expanded_case_pct,
       boltId = R.id.case_charging_bolt,
       prefix = "К",
@@ -302,6 +304,7 @@ object TwsNotificationHelper {
 
   private fun bindSlot(
     views: RemoteViews,
+    containerId: Int,
     textId: Int,
     boltId: Int,
     prefix: String,
@@ -309,13 +312,16 @@ object TwsNotificationHelper {
     isCharging: Boolean,
     isDark: Boolean,
   ) {
-    val pctText = if (percent != null) "$prefix: $percent%" else "$prefix: —"
-    views.setTextViewText(textId, pctText)
+    if (percent == null) {
+      views.setViewVisibility(containerId, View.GONE)
+      return
+    }
+    views.setViewVisibility(containerId, View.VISIBLE)
+    views.setTextViewText(textId, "$prefix: $percent%")
 
     val textColor =
       when {
         isCharging -> if (isDark) 0xFFF8FAFC.toInt() else 0xFF111827.toInt()
-        percent == null -> if (isDark) 0xFF94A3B8.toInt() else 0xFF64748B.toInt()
         percent <= 20 -> if (isDark) 0xFFFF5263.toInt() else 0xFFDC2626.toInt()
         percent <= 45 -> if (isDark) 0xFFFF8A3D.toInt() else 0xFFEA580C.toInt()
         else -> if (isDark) 0xFFF8FAFC.toInt() else 0xFF111827.toInt()

@@ -84,6 +84,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   fun refreshAll() {
     permissionTick.value += 1
     repository.refreshAllTelemetry()
+    val state = repository.batteryState.value
+    if (state.isConnected && repository.settings.value.autoShowOnConnect) {
+      TwsMonitorService.startIfPermitted(getApplication())
+    }
   }
 
   fun toggleShadeWidget() {

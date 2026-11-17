@@ -15,6 +15,13 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.content.ContextCompat
 import com.example.notification.TwsNotificationHelper
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class TwsMonitorService : Service() {
 
@@ -80,10 +87,29 @@ class TwsMonitorService : Service() {
       }
     }
 
+  private val serviceScope =
+    CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+  private var refreshJob: Job? = null
+
   override fun onCreate() {
     super.onCreate()
     repository = TwsMonitorRepository.getInstance(this)
     registerDynamicReceiver()
+    startScreenOnClassicSync()
+  }
+
+  private fun startScreenOnClassicSync() {
+    refreshJob?.cancel()
+    refreshJob =
+      serviceScope.launch {
+        val powerManager = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        while (true) {
+          delay(30_000L)
+          if (powerManager?.isInteractive == true && repository.batteryState.value.isConnected) {
+            repository.refreshConnectedAudioDevices()
+          }
+        }
+      }
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -123,6 +149,8 @@ class TwsMonitorService : Service() {
 
   override fun onDestroy() {
     super.onDestroy()
+    refreshJob?.cancel()
+    serviceScope.cancel()
     if (receiverRegistered) {
       try {
         unregisterReceiver(dynamicBtReceiver)

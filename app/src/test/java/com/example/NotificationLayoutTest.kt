@@ -22,24 +22,24 @@ import org.robolectric.annotation.Config
 class NotificationLayoutTest {
 
   @Test
-  fun `shade widget centers Л П К without icon or title and hides status bar icon via IMPORTANCE_MIN`() {
+  fun `shade widget hides closed case and bud in closed case while showing active buds`() {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val state =
       TwsBatteryState(
         deviceName = "My Custom Buds",
-        protocolSource = BatteryProtocol.XIAOMI_BLE,
-        leftPercent = 99,
-        rightPercent = 92,
-        casePercent = 68,
+        protocolSource = BatteryProtocol.BLUETOOTH_CLASSIC,
+        leftPercent = null, // inside closed case
+        rightPercent = 92,  // active in ear
+        casePercent = null, // closed case
         isLeftCharging = false,
-        isRightCharging = true,
+        isRightCharging = false,
         isCaseCharging = false,
         isConnected = true,
         isShadeWidgetActive = true,
       )
     val settings = AppSettings(showCaseInCompact = true)
 
-    assertEquals("Л: 100%  П: 90%  К: 70%", TwsNotificationHelper.formatSummaryLine(state))
+    assertEquals("П: 90%", TwsNotificationHelper.formatSummaryLine(state))
 
     val notification = TwsNotificationHelper.buildShadeWidgetNotification(context, state, settings)
     assertNotNull(notification.contentView)
@@ -53,19 +53,15 @@ class NotificationLayoutTest {
 
     val parent = FrameLayout(context)
     val compactView = notification.contentView.apply(context, parent)
-    assertEquals("Л: 100%", compactView.findViewById<TextView>(R.id.compact_left_text).text.toString())
+    assertEquals(View.GONE, compactView.findViewById<View>(R.id.compact_left_container).visibility)
+    assertEquals(View.VISIBLE, compactView.findViewById<View>(R.id.compact_right_container).visibility)
+    assertEquals(View.GONE, compactView.findViewById<View>(R.id.compact_case_container).visibility)
     assertEquals("П: 90%", compactView.findViewById<TextView>(R.id.compact_right_text).text.toString())
-    assertEquals("К: 70%", compactView.findViewById<TextView>(R.id.compact_case_text).text.toString())
-    assertEquals(View.GONE, compactView.findViewById<View>(R.id.compact_left_bolt).visibility)
-    assertEquals(View.VISIBLE, compactView.findViewById<View>(R.id.compact_right_bolt).visibility)
-    assertEquals(View.GONE, compactView.findViewById<View>(R.id.compact_case_bolt).visibility)
 
     val expandedView = notification.bigContentView.apply(context, parent)
-    assertEquals("Л: 100%", expandedView.findViewById<TextView>(R.id.expanded_left_pct).text.toString())
+    assertEquals(View.GONE, expandedView.findViewById<View>(R.id.expanded_left_container).visibility)
+    assertEquals(View.VISIBLE, expandedView.findViewById<View>(R.id.expanded_right_container).visibility)
+    assertEquals(View.GONE, expandedView.findViewById<View>(R.id.expanded_case_container).visibility)
     assertEquals("П: 90%", expandedView.findViewById<TextView>(R.id.expanded_right_pct).text.toString())
-    assertEquals("К: 70%", expandedView.findViewById<TextView>(R.id.expanded_case_pct).text.toString())
-    assertEquals(View.GONE, expandedView.findViewById<View>(R.id.left_charging_bolt).visibility)
-    assertEquals(View.VISIBLE, expandedView.findViewById<View>(R.id.right_charging_bolt).visibility)
-    assertEquals(View.GONE, expandedView.findViewById<View>(R.id.case_charging_bolt).visibility)
   }
 }

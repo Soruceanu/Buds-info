@@ -205,16 +205,16 @@ fun MinimalistShadeWidgetPreview(
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
       ) {
-        val leftVal = state.leftPercent ?: if (state.isConnected) null else 95
-        val rightVal = state.rightPercent ?: if (state.isConnected) null else 90
-        val caseVal = state.casePercent ?: if (state.isConnected) null else 65
+        val leftVal = if (state.isConnected || state.isPreviewMode) state.leftPercent else 95
+        val rightVal = if (state.isConnected || state.isPreviewMode) state.rightPercent else 90
+        val caseVal = if (state.isConnected || state.isPreviewMode) state.casePercent else null
         val leftChg = if (state.isConnected || state.isPreviewMode) state.isLeftCharging else false
-        val rightChg = if (state.isConnected || state.isPreviewMode) state.isRightCharging else true
+        val rightChg = if (state.isConnected || state.isPreviewMode) state.isRightCharging else false
         val caseChg = if (state.isConnected || state.isPreviewMode) state.isCaseCharging else false
 
-        ShadeWidgetTextSlot("Л", leftVal, leftChg)
-        ShadeWidgetTextSlot("П", rightVal, rightChg)
-        if (settings.showCaseInCompact) {
+        if (leftVal != null) ShadeWidgetTextSlot("Л", leftVal, leftChg)
+        if (rightVal != null) ShadeWidgetTextSlot("П", rightVal, rightChg)
+        if (settings.showCaseInCompact && caseVal != null) {
           ShadeWidgetTextSlot("К", caseVal, caseChg)
         }
       }

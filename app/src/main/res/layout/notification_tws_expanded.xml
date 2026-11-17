@@ -14,7 +14,7 @@
         android:layout_height="1dp"
         android:layout_weight="1" />
 
-    <!-- Centered 80% telemetry row: [⚡]Л: 100%   [⚡]П: 95%   [⚡]К: 80% -->
+    <!-- Centered 80% telemetry row: visible slots only ([⚡]Л: 100%  [⚡]П: 95%  [⚡]К: 80%) -->
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
@@ -23,6 +23,7 @@
         android:orientation="horizontal">
 
         <LinearLayout
+            android:id="@+id/expanded_left_container"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -50,6 +51,7 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/expanded_right_container"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -77,6 +79,7 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/expanded_case_container"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
