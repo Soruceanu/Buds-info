@@ -179,8 +179,8 @@ fun BatteryArcGauge(
 }
 
 /**
- * Exact visual preview of the ultra-slim single-row notification shade widget:
- * Centered Л, П, К with 10% padding on each side, no icon or device label.
+ * Visual preview of the ultra-slim single-row notification shade widget:
+ * Left-aligned Л, П, К under the notification header, showing only active components.
  */
 @Composable
 fun MinimalistShadeWidgetPreview(
@@ -195,31 +195,24 @@ fun MinimalistShadeWidgetPreview(
     border = BorderStroke(1.dp, Color(0xFF3E4147)),
   ) {
     Row(
-      modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+      modifier =
+        Modifier.fillMaxWidth()
+          .padding(start = 52.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
+      horizontalArrangement = Arrangement.spacedBy(14.dp),
       verticalAlignment = Alignment.CenterVertically,
     ) {
-      Spacer(modifier = Modifier.weight(0.1f))
+      val leftVal = if (state.isConnected || state.isPreviewMode) state.leftPercent else 95
+      val rightVal = if (state.isConnected || state.isPreviewMode) state.rightPercent else 90
+      val caseVal = if (state.isConnected || state.isPreviewMode) state.casePercent else null
+      val leftChg = if (state.isConnected || state.isPreviewMode) state.isLeftCharging else false
+      val rightChg = if (state.isConnected || state.isPreviewMode) state.isRightCharging else false
+      val caseChg = if (state.isConnected || state.isPreviewMode) state.isCaseCharging else false
 
-      Row(
-        modifier = Modifier.weight(0.8f),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        val leftVal = if (state.isConnected || state.isPreviewMode) state.leftPercent else 95
-        val rightVal = if (state.isConnected || state.isPreviewMode) state.rightPercent else 90
-        val caseVal = if (state.isConnected || state.isPreviewMode) state.casePercent else null
-        val leftChg = if (state.isConnected || state.isPreviewMode) state.isLeftCharging else false
-        val rightChg = if (state.isConnected || state.isPreviewMode) state.isRightCharging else false
-        val caseChg = if (state.isConnected || state.isPreviewMode) state.isCaseCharging else false
-
-        if (leftVal != null) ShadeWidgetTextSlot("Л", leftVal, leftChg)
-        if (rightVal != null) ShadeWidgetTextSlot("П", rightVal, rightChg)
-        if (settings.showCaseInCompact && caseVal != null) {
-          ShadeWidgetTextSlot("К", caseVal, caseChg)
-        }
+      if (leftVal != null) ShadeWidgetTextSlot("Л", leftVal, leftChg)
+      if (rightVal != null) ShadeWidgetTextSlot("П", rightVal, rightChg)
+      if (settings.showCaseInCompact && caseVal != null) {
+        ShadeWidgetTextSlot("К", caseVal, caseChg)
       }
-
-      Spacer(modifier = Modifier.weight(0.1f))
     }
   }
 }

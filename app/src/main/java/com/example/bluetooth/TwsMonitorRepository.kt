@@ -60,6 +60,7 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
   private var headsetProxy: BluetoothProfile? = null
   private var activeGatt: BluetoothGatt? = null
   private var bleScanJob: Job? = null
+  private var isContinuousBleScan = false
   private var lowBatteryAlertSentForSession = false
   private var lastWakeRefreshMs = 0L
   private var lastBlePacketMs = 0L
@@ -155,16 +156,16 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
   }
 
   /**
-   * Called on screen wake / user unlock (shade pull-down opportunity) with a 12s cooldown
-   * so telemetry is fresh without wasting battery.
+   * Called on screen wake / user unlock (shade pull-down opportunity) with a 3s cooldown
+   * so telemetry is fresh and continuous low-power BLE listening stays active while screen is on.
    */
   fun refreshOnWakeOrShadePull() {
     val now = System.currentTimeMillis()
-    if (now - lastWakeRefreshMs < 12_000L) return
+    if (now - lastWakeRefreshMs < 3_000L) return
     lastWakeRefreshMs = now
     if (!_batteryState.value.isConnected) return
     refreshConnectedAudioDevices()
-    startBleTelemetryScan(durationMs = 5_000L)
+    startBleTelemetryScan(durationMs = null)
   }
 
   @SuppressLint("MissingPermission")
@@ -218,7 +219,8 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
       val sameDevice = current.deviceAddress == activeDevice.address && current.isConnected
       val classicPct = TwsBatteryParser.quantizeToFive(activeDevice.classicBatteryPercent)
       val bleIsFresh =
-        hasActiveBlePerBudTelemetry && (System.currentTimeMillis() - lastBlePacketMs) < 20_000L
+        hasActiveBlePerBudTelemetry &&
+          (System.currentTimeMillis() - lastBlePacketMs) < BLE_FRESH_TIMEOUT_MS
 
       val nextLeft: Int?
       val nextRight: Int?
@@ -412,7 +414,8 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
     }
     val stepped = TwsBatteryParser.quantizeToFive(level) ?: return
     val bleIsFresh =
-      hasActiveBlePerBudTelemetry && (System.currentTimeMillis() - lastBlePacketMs) < 20_000L
+      hasActiveBlePerBudTelemetry &&
+        (System.currentTimeMillis() - lastBlePacketMs) < BLE_FRESH_TIMEOUT_MS
 
     val leftWasInClosedCase = current.isLeftCharging && !current.isRightCharging
     val rightWasInClosedCase = current.isRightCharging && !current.isLeftCharging
@@ -467,12 +470,24 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
   }
 
   @SuppressLint("MissingPermission")
-  fun startBleTelemetryScan(durationMs: Long = 5_000L) {
+  fun startBleTelemetryScan(durationMs: Long? = 5_000L) {
     val perms = checkPermissions()
     if (!perms.hasBluetoothScan || !perms.hasLegacyLocationIfNeeded) return
     val scanner = bluetoothAdapter?.bluetoothLeScanner ?: return
 
+    if (durationMs == null && _batteryState.value.isScanningBle && isContinuousBleScan) {
+      return
+    }
+
     bleScanJob?.cancel()
+    bleScanJob = null
+    if (_batteryState.value.isScanningBle) {
+      try {
+        scanner.stopScan(bleScanCallback)
+      } catch (_: Exception) {}
+    }
+
+    isContinuousBleScan = durationMs == null
     _batteryState.update { it.copy(isScanningBle = true) }
 
     val filters =
@@ -497,26 +512,32 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
           .build(),
       )
 
-    val settings =
-      ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_BALANCED).build()
+    val scanMode =
+      if (durationMs == null) ScanSettings.SCAN_MODE_LOW_POWER
+      else ScanSettings.SCAN_MODE_BALANCED
+    val settings = ScanSettings.Builder().setScanMode(scanMode).build()
     try {
       scanner.startScan(filters, settings, bleScanCallback)
     } catch (_: SecurityException) {
+      isContinuousBleScan = false
       _batteryState.update { it.copy(isScanningBle = false) }
       return
     }
 
-    bleScanJob =
-      scope.launch {
-        delay(durationMs)
-        stopBleTelemetryScan()
-      }
+    if (durationMs != null) {
+      bleScanJob =
+        scope.launch {
+          delay(durationMs)
+          stopBleTelemetryScan()
+        }
+    }
   }
 
   @SuppressLint("MissingPermission")
   fun stopBleTelemetryScan() {
     bleScanJob?.cancel()
     bleScanJob = null
+    isContinuousBleScan = false
     _batteryState.update { it.copy(isScanningBle = false) }
     val scanner = bluetoothAdapter?.bluetoothLeScanner ?: return
     if (!checkPermissions().hasBluetoothScan) return
@@ -606,19 +627,35 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
     if (isPerBudProtocol) {
       lastBlePacketMs = System.currentTimeMillis()
       hasActiveBlePerBudTelemetry = true
-      // Explicitly null (0x7F) or closed lid means closed case (and any bud charging inside it) is hidden
-      val lidClosed = payload.isLidOpen == false
+      val lidOpenConfirmed = payload.isLidOpen == true
+      val oneBudInCase = payload.isLeftCharging xor payload.isRightCharging
+      val caseDefinitelyClosed =
+        payload.isLidOpen == false ||
+          (!lidOpenConfirmed &&
+            !payload.isLeftCharging &&
+            !payload.isRightCharging &&
+            !payload.isCaseCharging) ||
+          (!lidOpenConfirmed && oneBudInCase)
       val rawLeft = TwsBatteryParser.quantizeToFive(payload.leftPercent)
       val rawRight = TwsBatteryParser.quantizeToFive(payload.rightPercent)
-      nextLeft = if (lidClosed && payload.isLeftCharging && !payload.isRightCharging) null else rawLeft
-      nextRight = if (lidClosed && payload.isRightCharging && !payload.isLeftCharging) null else rawRight
+      nextLeft =
+        if (!lidOpenConfirmed && payload.isLeftCharging && !payload.isRightCharging) null
+        else rawLeft
+      nextRight =
+        if (!lidOpenConfirmed && payload.isRightCharging && !payload.isLeftCharging) null
+        else rawRight
       nextCase =
-        if (lidClosed) null
+        if (caseDefinitelyClosed) null
         else TwsBatteryParser.quantizeToFive(payload.casePercent)
     } else {
       nextLeft = TwsBatteryParser.quantizeToFive(payload.leftPercent) ?: current.leftPercent
       nextRight = TwsBatteryParser.quantizeToFive(payload.rightPercent) ?: current.rightPercent
-      nextCase = TwsBatteryParser.quantizeToFive(payload.casePercent)
+      nextCase =
+        if (payload.isLidOpen == true || payload.isCaseCharging) {
+          TwsBatteryParser.quantizeToFive(payload.casePercent)
+        } else {
+          null
+        }
     }
 
     val telemetryChanged =
@@ -861,6 +898,7 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
   }
 
   companion object {
+    private const val BLE_FRESH_TIMEOUT_MS = 5_000L
     @Volatile private var instance: TwsMonitorRepository? = null
 
     fun getInstance(context: Context): TwsMonitorRepository {

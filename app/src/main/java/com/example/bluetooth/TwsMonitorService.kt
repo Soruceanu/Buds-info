@@ -55,6 +55,12 @@ class TwsMonitorService : Service() {
               }
             }
           }
+          BluetoothHeadset.ACTION_AUDIO_STATE_CHANGED,
+          ACTION_A2DP_ACTIVE_DEVICE_CHANGED,
+          ACTION_HEADSET_ACTIVE_DEVICE_CHANGED -> {
+            repository.refreshConnectedAudioDevices()
+            repository.startBleTelemetryScan(durationMs = null)
+          }
           ACTION_BATTERY_LEVEL_CHANGED -> {
             val level = intent.getIntExtra(EXTRA_BATTERY_LEVEL, -1)
             repository.onClassicBatteryBroadcast(device, level)
@@ -97,6 +103,10 @@ class TwsMonitorService : Service() {
     repository = TwsMonitorRepository.getInstance(this)
     registerDynamicReceiver()
     startScreenOnClassicSync()
+    val powerManager = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+    if (powerManager?.isInteractive == true) {
+      repository.startBleTelemetryScan(durationMs = null)
+    }
   }
 
   private fun startScreenOnClassicSync() {
@@ -104,15 +114,11 @@ class TwsMonitorService : Service() {
     refreshJob =
       serviceScope.launch {
         val powerManager = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
-        var tickCount = 0
         while (true) {
-          delay(30_000L)
+          delay(5_000L)
           if (powerManager?.isInteractive == true && repository.batteryState.value.isConnected) {
-            tickCount += 1
             repository.refreshConnectedAudioDevices()
-            if (tickCount % 2 == 0) {
-              repository.startBleTelemetryScan(durationMs = 4_000L)
-            }
+            repository.startBleTelemetryScan(durationMs = null)
           }
         }
       }
@@ -177,6 +183,9 @@ class TwsMonitorService : Service() {
         addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
         addAction(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED)
         addAction(BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED)
+        addAction(BluetoothHeadset.ACTION_AUDIO_STATE_CHANGED)
+        addAction(ACTION_A2DP_ACTIVE_DEVICE_CHANGED)
+        addAction(ACTION_HEADSET_ACTIVE_DEVICE_CHANGED)
         addAction(ACTION_BATTERY_LEVEL_CHANGED)
         addAction(BluetoothHeadset.ACTION_VENDOR_SPECIFIC_HEADSET_EVENT)
         addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
@@ -215,6 +224,10 @@ class TwsMonitorService : Service() {
   companion object {
     const val ACTION_BATTERY_LEVEL_CHANGED = "android.bluetooth.device.action.BATTERY_LEVEL_CHANGED"
     const val EXTRA_BATTERY_LEVEL = "android.bluetooth.device.extra.BATTERY_LEVEL"
+    const val ACTION_A2DP_ACTIVE_DEVICE_CHANGED =
+      "android.bluetooth.a2dp.profile.action.ACTIVE_DEVICE_CHANGED"
+    const val ACTION_HEADSET_ACTIVE_DEVICE_CHANGED =
+      "android.bluetooth.headset.profile.action.ACTIVE_DEVICE_CHANGED"
     @Volatile var isRunning: Boolean = false
 
     fun startIfPermitted(context: Context) {
