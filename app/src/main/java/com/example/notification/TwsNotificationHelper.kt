@@ -122,6 +122,7 @@ object TwsNotificationHelper {
       .setContentTitle(summaryText)
       .setContentText(summaryText)
       .setContentIntent(openAppIntent)
+      .setStyle(NotificationCompat.DecoratedCustomViewStyle())
       .setCustomContentView(compactViews)
       .setCustomBigContentView(expandedViews)
       .setShowWhen(false)
