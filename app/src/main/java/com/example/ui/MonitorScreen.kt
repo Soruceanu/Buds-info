@@ -189,6 +189,11 @@ fun MonitorScreen(
             )
             val subtitle =
               when {
+                battery.isConnected &&
+                  battery.leftPercent == null &&
+                  battery.rightPercent == null &&
+                  battery.combinedPercent != null ->
+                  "Заряд: ${battery.combinedPercent}% • Общий канал Bluetooth"
                 battery.isConnected && battery.rssiDbm != null ->
                   "Сигнал ${battery.rssiDbm} dBm • Автовиджет активен"
                 battery.isConnected -> "Подключено • Телеметрия обновляется"

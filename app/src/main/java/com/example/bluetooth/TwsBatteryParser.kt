@@ -8,9 +8,11 @@ data class ParsedBatteryPayload(
   val leftPercent: Int?,
   val rightPercent: Int?,
   val casePercent: Int?,
+  val combinedPercent: Int? = null,
   val isLeftCharging: Boolean = false,
   val isRightCharging: Boolean = false,
   val isCaseCharging: Boolean = false,
+  val isCombinedCharging: Boolean = false,
   val isLidOpen: Boolean? = null,
   val protocol: BatteryProtocol,
 )
@@ -133,23 +135,28 @@ object TwsBatteryParser {
           val bL = data[offset].toInt() and 0xFF
           val bR = data[offset + 1].toInt() and 0xFF
           val bC = data[offset + 2].toInt() and 0xFF
-          if (bL == 0 && bR == 0 && bC == 0) continue
+          if (!isValidXiaomiSlotByte(bL) ||
+              !isValidXiaomiSlotByte(bR) ||
+              !isValidXiaomiSlotByte(bC)) {
+            continue
+          }
           val candidate = buildFromThreeBytes(bL, bR, bC, BatteryProtocol.XIAOMI_BLE)
           val hasBothBuds = candidate?.leftPercent != null && candidate.rightPercent != null
           val hasSingleBudWithExplicitSentinel =
             candidate != null &&
               ((candidate.leftPercent != null) xor (candidate.rightPercent != null)) &&
-              (bL == 0x7F || bR == 0x7F || candidate.casePercent != null)
+              (bL == 0x7F || bR == 0x7F || bL == 0xFF || bR == 0xFF || candidate.casePercent != null)
           if (hasBothBuds || hasSingleBudWithExplicitSentinel) {
             val lidByte = data.getOrNull(offset - 1)?.toInt()?.and(0xFF)
-            val isLidOpen = if (lidByte != null && (lidByte and 0x01) != 0) true else null
+            val isLidOpen =
+              if (lidByte != null && lidByte <= 0x0F && (lidByte and 0x01) != 0) true else null
             return candidate!!.copy(isLidOpen = isLidOpen)
           }
         }
       }
     }
 
-    // Pattern B: MiBeacon 0xFE95 frame with battery object ID (0x100A -> len 1)
+    // Pattern B: MiBeacon 0xFE95 frame with single battery object ID (0x100A -> len 1)
     if (data.size >= 8) {
       for (i in 0..(data.size - 5)) {
         val b0 = data[i].toInt() and 0xFF
@@ -159,9 +166,10 @@ object TwsBatteryParser {
           val pct = data[i + 3].toInt() and 0xFF
           if (pct in 0..100) {
             return ParsedBatteryPayload(
-              leftPercent = pct,
-              rightPercent = pct,
+              leftPercent = null,
+              rightPercent = null,
               casePercent = null,
+              combinedPercent = pct,
               protocol = BatteryProtocol.XIAOMI_BLE,
             )
           }
@@ -239,13 +247,21 @@ object TwsBatteryParser {
     }
     if (batteryPct == null) return null
     return ParsedBatteryPayload(
-      leftPercent = batteryPct,
-      rightPercent = batteryPct,
+      leftPercent = null,
+      rightPercent = null,
       casePercent = null,
-      isLeftCharging = charging,
-      isRightCharging = charging,
+      combinedPercent = batteryPct,
+      isCombinedCharging = charging,
       protocol = BatteryProtocol.BLUETOOTH_CLASSIC,
     )
+  }
+
+  private fun isValidXiaomiSlotByte(rawByte: Int): Boolean {
+    val unsigned = rawByte and 0xFF
+    if (unsigned == 0x7F || unsigned == 0xFF) return true
+    val pct = unsigned and 0x7F
+    if (pct == 0 && (unsigned and 0x80) == 0) return false
+    return pct in 0..100
   }
 
   private fun buildFromThreeBytes(

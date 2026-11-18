@@ -133,14 +133,35 @@ class TwsBatteryParserTest {
   }
 
   @Test
-  fun `parseIphoneAccEv decodes HFP battery level`() {
+  fun `parseXiaomiBleData ignores zero-padding and non-battery case bytes`() {
+    val paddedPayload =
+      byteArrayOf(
+        0x01,
+        0x02,
+        0x03,
+        0x04,
+        0x05,
+        0x06,
+        0x07,
+        0xA1.toByte(), // noisy high byte should NOT set isLidOpen = true
+        0x00,          // zero padding, not an active earbud
+        45.toByte(),   // would falsely look like right=45% if offset 8 wasn't rejected
+        0x6E.toByte(), // invalid byte (110 > 100, not 0x7F/0xFF or charging 0..100)
+        80.toByte(),
+      )
+    assertNull(TwsBatteryParser.parseXiaomiBleData(paddedPayload))
+  }
+
+  @Test
+  fun `parseIphoneAccEv decodes HFP battery level as combined reading without fabricating two buds`() {
     val args: Array<Any> = arrayOf(2, 1, 7, 2, 1) // level 7 -> 80%, dock charging -> true
     val parsed = TwsBatteryParser.parseIphoneAccEv(args)
     assertNotNull(parsed)
-    assertEquals(80, parsed!!.leftPercent)
-    assertEquals(80, parsed.rightPercent)
+    assertNull(parsed!!.leftPercent)
+    assertNull(parsed.rightPercent)
+    assertEquals(80, parsed.combinedPercent)
     assertNull(parsed.casePercent)
-    assertTrue(parsed.isLeftCharging)
+    assertTrue(parsed.isCombinedCharging)
   }
 
   @Test

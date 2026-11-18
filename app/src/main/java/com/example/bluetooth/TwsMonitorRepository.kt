@@ -226,44 +226,70 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
 
       val nextLeft: Int?
       val nextRight: Int?
+      val nextCombined: Int?
       val nextCase: Int?
       val nextLeftChg: Boolean
       val nextRightChg: Boolean
+      val nextCombinedChg: Boolean
       val nextCaseChg: Boolean
 
       if (bleIsFresh) {
         nextLeft = current.leftPercent
         nextRight = current.rightPercent
+        nextCombined = current.combinedPercent
         nextCase = current.casePercent
         nextLeftChg = current.isLeftCharging
         nextRightChg = current.isRightCharging
+        nextCombinedChg = current.isCombinedCharging
         nextCaseChg = current.isCaseCharging
       } else {
         // Case is closed / BLE stopped: do NOT show stale closed case or bud charging inside closed case,
-        // and update active bud(s) with fresh live Bluetooth Classic battery level!
+        // and never duplicate a single Classic scalar battery into both L and R.
         nextCase = null
         nextCaseChg = false
         nextLeftChg = false
         nextRightChg = false
+        nextCombinedChg = false
         val leftWasInClosedCase = sameDevice && current.isLeftCharging && !current.isRightCharging
         val rightWasInClosedCase = sameDevice && current.isRightCharging && !current.isLeftCharging
-        val singleBudOnly = sameDevice && ((current.leftPercent != null) != (current.rightPercent != null))
+        val singleBudOnly = sameDevice && ((current.leftPercent != null) xor (current.rightPercent != null))
+        val activeSinglePct = if (singleBudOnly) (current.leftPercent ?: current.rightPercent) else null
+        val swappedSingleBud =
+          classicPct != null &&
+            activeSinglePct != null &&
+            !current.isLeftCharging &&
+            !current.isRightCharging &&
+            (classicPct - activeSinglePct >= 15)
         when {
           leftWasInClosedCase -> {
             nextLeft = null
             nextRight = classicPct ?: current.rightPercent
+            nextCombined = null
           }
           rightWasInClosedCase -> {
             nextLeft = classicPct ?: current.leftPercent
             nextRight = null
+            nextCombined = null
+          }
+          singleBudOnly && swappedSingleBud -> {
+            nextLeft = null
+            nextRight = null
+            nextCombined = classicPct
           }
           singleBudOnly -> {
             nextLeft = if (current.leftPercent != null) (classicPct ?: current.leftPercent) else null
             nextRight = if (current.rightPercent != null) (classicPct ?: current.rightPercent) else null
+            nextCombined = null
+          }
+          sameDevice && current.leftPercent != null && current.rightPercent != null -> {
+            nextLeft = current.leftPercent
+            nextRight = current.rightPercent
+            nextCombined = null
           }
           else -> {
-            nextLeft = classicPct ?: current.leftPercent
-            nextRight = classicPct ?: current.rightPercent
+            nextLeft = null
+            nextRight = null
+            nextCombined = classicPct ?: current.combinedPercent
           }
         }
       }
@@ -280,9 +306,11 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
           if (current.deviceName == activeDevice.name &&
               current.leftPercent == nextLeft &&
               current.rightPercent == nextRight &&
+              current.combinedPercent == nextCombined &&
               current.casePercent == nextCase &&
               current.isLeftCharging == nextLeftChg &&
               current.isRightCharging == nextRightChg &&
+              current.isCombinedCharging == nextCombinedChg &&
               current.isCaseCharging == nextCaseChg &&
               current.protocolSource == nextProtocol) {
             return
@@ -291,9 +319,11 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
             deviceName = activeDevice.name,
             leftPercent = nextLeft,
             rightPercent = nextRight,
+            combinedPercent = nextCombined,
             casePercent = nextCase,
             isLeftCharging = nextLeftChg,
             isRightCharging = nextRightChg,
+            isCombinedCharging = nextCombinedChg,
             isCaseCharging = nextCaseChg,
             protocolSource = nextProtocol,
             lastUpdatedMillis = System.currentTimeMillis(),
@@ -311,8 +341,9 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
                 _settings.value.preferredBrandPreset
               },
             protocolSource = BatteryProtocol.BLUETOOTH_CLASSIC,
-            leftPercent = classicPct,
-            rightPercent = classicPct,
+            leftPercent = null,
+            rightPercent = null,
+            combinedPercent = classicPct,
             casePercent = null,
             isConnected = true,
             isPreviewMode = false,
@@ -363,8 +394,9 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
           if (_settings.value.preferredBrandPreset == EarbudBrandPreset.AUTO) guessedBrand
           else _settings.value.preferredBrandPreset,
         protocolSource = BatteryProtocol.BLUETOOTH_CLASSIC,
-        leftPercent = classicPct,
-        rightPercent = classicPct,
+        leftPercent = null,
+        rightPercent = null,
+        combinedPercent = classicPct,
         casePercent = null,
         isConnected = true,
         isPreviewMode = false,
@@ -425,27 +457,58 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
     val leftWasInClosedCase = current.isLeftCharging && !current.isRightCharging
     val rightWasInClosedCase = current.isRightCharging && !current.isLeftCharging
     val singleBudOnly = (current.leftPercent != null) != (current.rightPercent != null)
+    val activeSinglePct = if (singleBudOnly) (current.leftPercent ?: current.rightPercent) else null
+    val swappedSingleBud =
+      activeSinglePct != null &&
+        !current.isLeftCharging &&
+        !current.isRightCharging &&
+        (stepped - activeSinglePct >= 15)
 
-    val nextLeft =
-      when {
-        bleIsFresh -> current.leftPercent
-        leftWasInClosedCase -> null
-        rightWasInClosedCase -> stepped
-        singleBudOnly -> if (current.leftPercent != null) stepped else null
-        else -> stepped
+    val nextLeft: Int?
+    val nextRight: Int?
+    val nextCombined: Int?
+    when {
+      bleIsFresh -> {
+        nextLeft = current.leftPercent
+        nextRight = current.rightPercent
+        nextCombined = current.combinedPercent
       }
-    val nextRight =
-      when {
-        bleIsFresh -> current.rightPercent
-        rightWasInClosedCase -> null
-        leftWasInClosedCase -> stepped
-        singleBudOnly -> if (current.rightPercent != null) stepped else null
-        else -> stepped
+      leftWasInClosedCase -> {
+        nextLeft = null
+        nextRight = stepped
+        nextCombined = null
       }
+      rightWasInClosedCase -> {
+        nextLeft = stepped
+        nextRight = null
+        nextCombined = null
+      }
+      singleBudOnly && swappedSingleBud -> {
+        nextLeft = null
+        nextRight = null
+        nextCombined = stepped
+      }
+      singleBudOnly -> {
+        nextLeft = if (current.leftPercent != null) stepped else null
+        nextRight = if (current.rightPercent != null) stepped else null
+        nextCombined = null
+      }
+      current.leftPercent != null && current.rightPercent != null -> {
+        nextLeft = current.leftPercent
+        nextRight = current.rightPercent
+        nextCombined = null
+      }
+      else -> {
+        nextLeft = null
+        nextRight = null
+        nextCombined = stepped
+      }
+    }
     val nextCase = if (bleIsFresh) current.casePercent else null
 
     if (current.leftPercent == nextLeft &&
         current.rightPercent == nextRight &&
+        current.combinedPercent == nextCombined &&
         current.casePercent == nextCase &&
         current.isConnected) {
       return
@@ -454,6 +517,7 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
       current.copy(
         leftPercent = nextLeft,
         rightPercent = nextRight,
+        combinedPercent = nextCombined,
         casePercent = nextCase,
         isConnected = true,
         lastUpdatedMillis = System.currentTimeMillis(),
@@ -570,39 +634,43 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
       !resultName.isNullOrBlank() &&
         current.deviceName.contains(resultName, ignoreCase = true)
 
-    var parsed: ParsedBatteryPayload? = null
-
     val fastPairPayload =
-      record.getServiceData(android.os.ParcelUuid(UUID.fromString(TwsBatteryParser.FAST_PAIR_UUID)))
+      record.getServiceData(ParcelUuid(UUID.fromString(TwsBatteryParser.FAST_PAIR_UUID)))
         ?.let { TwsBatteryParser.parseFastPairData(it) }
     if (fastPairPayload?.isLidOpen != null) {
       recentFastPairLidOpen = fastPairPayload.isLidOpen
       recentFastPairLidMs = System.currentTimeMillis()
     }
 
-    // 1. Xiaomi Service Data (0xFD2D / 0xFE95)
-    record.getServiceData(android.os.ParcelUuid(UUID.fromString(TwsBatteryParser.XIAOMI_FAST_CONNECT_UUID)))
-      ?.let { parsed = TwsBatteryParser.parseXiaomiBleData(it) }
-    if (parsed == null) {
-      record.getServiceData(android.os.ParcelUuid(UUID.fromString(TwsBatteryParser.XIAOMI_MI_SERVICE_UUID)))
-        ?.let { parsed = TwsBatteryParser.parseXiaomiBleData(it) }
+    // 1. Prefer Google Fast Pair (0xFE2C) when present — deterministic LTV frame with 0x7F absent sentinels
+    var parsed: ParsedBatteryPayload? = fastPairPayload
+
+    // 2. Xiaomi Service Data (0xFD2D / 0xFE95) & Manufacturer Data (0x038F / 0x0157)
+    var xiaomiParsed: ParsedBatteryPayload? = null
+    record.getServiceData(ParcelUuid(UUID.fromString(TwsBatteryParser.XIAOMI_FAST_CONNECT_UUID)))
+      ?.let { xiaomiParsed = TwsBatteryParser.parseXiaomiBleData(it) }
+    if (xiaomiParsed == null && (isSameAddress || isKnownName)) {
+      record.getServiceData(ParcelUuid(UUID.fromString(TwsBatteryParser.XIAOMI_MI_SERVICE_UUID)))
+        ?.let { xiaomiParsed = TwsBatteryParser.parseXiaomiBleData(it) }
     }
-    // 2. Xiaomi Manufacturer Data (0x038F / 0x0157)
-    if (parsed == null) {
+    if (xiaomiParsed == null) {
       record.getManufacturerSpecificData(TwsBatteryParser.XIAOMI_MANUFACTURER_ID)?.let {
-        parsed = TwsBatteryParser.parseXiaomiBleData(it)
+        xiaomiParsed = TwsBatteryParser.parseXiaomiBleData(it)
       }
     }
-    if (parsed == null) {
+    if (xiaomiParsed == null) {
       record.getManufacturerSpecificData(TwsBatteryParser.XIAOMI_ALT_MANUFACTURER_ID)?.let {
-        parsed = TwsBatteryParser.parseXiaomiBleData(it)
+        xiaomiParsed = TwsBatteryParser.parseXiaomiBleData(it)
       }
     }
-    // 3. Google Fast Pair (0xFE2C)
+
     if (parsed == null) {
-      parsed = fastPairPayload
+      parsed = xiaomiParsed
+    } else if (parsed.isLidOpen == null && xiaomiParsed?.isLidOpen == true) {
+      parsed = parsed.copy(isLidOpen = true)
     }
-    // 4. Apple / Universal Proximity BLE (0x004C)
+
+    // 3. Apple / Universal Proximity BLE (0x004C)
     if (parsed == null && (isSameAddress || isKnownName || current.brandPreset == EarbudBrandPreset.APPLE_CLONE)) {
       record.getManufacturerSpecificData(TwsBatteryParser.APPLE_MANUFACTURER_ID)?.let {
         parsed = TwsBatteryParser.parseAppleProximityData(it)
@@ -635,16 +703,18 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
 
   private fun applyParsedTelemetry(payload: ParsedBatteryPayload, rssi: Int?) {
     val current = _batteryState.value
-    val isPerBudProtocol =
-      payload.protocol == BatteryProtocol.XIAOMI_BLE ||
+    val isPerBudReading =
+      (payload.protocol == BatteryProtocol.XIAOMI_BLE ||
         payload.protocol == BatteryProtocol.FAST_PAIR_BLE ||
-        payload.protocol == BatteryProtocol.APPLE_PROXIMITY_BLE
+        payload.protocol == BatteryProtocol.APPLE_PROXIMITY_BLE) &&
+        (payload.leftPercent != null || payload.rightPercent != null)
 
     val nextLeft: Int?
     val nextRight: Int?
+    val nextCombined: Int?
     val nextCase: Int?
 
-    if (isPerBudProtocol) {
+    if (isPerBudReading) {
       lastBlePacketMs = System.currentTimeMillis()
       hasActiveBlePerBudTelemetry = true
       val lidOpenConfirmed = payload.isLidOpen == true
@@ -660,12 +730,48 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
       nextRight =
         if (!lidOpenConfirmed && payload.isRightCharging && !payload.isLeftCharging) null
         else rawRight
+      nextCombined = null
       nextCase =
         if (!showCase) null
         else TwsBatteryParser.quantizeToFive(payload.casePercent)
+    } else if (payload.leftPercent != null || payload.rightPercent != null) {
+      nextLeft = TwsBatteryParser.quantizeToFive(payload.leftPercent)
+      nextRight = TwsBatteryParser.quantizeToFive(payload.rightPercent)
+      nextCombined = null
+      nextCase =
+        if (payload.isLidOpen == true || payload.isCaseCharging) {
+          TwsBatteryParser.quantizeToFive(payload.casePercent)
+        } else {
+          null
+        }
     } else {
-      nextLeft = TwsBatteryParser.quantizeToFive(payload.leftPercent) ?: current.leftPercent
-      nextRight = TwsBatteryParser.quantizeToFive(payload.rightPercent) ?: current.rightPercent
+      val scalarPct = TwsBatteryParser.quantizeToFive(payload.combinedPercent)
+      val singleBudOnly = current.isConnected && ((current.leftPercent != null) xor (current.rightPercent != null))
+      if (singleBudOnly && scalarPct != null) {
+        val activeSinglePct = current.leftPercent ?: current.rightPercent
+        val swapped =
+          activeSinglePct != null &&
+            !current.isLeftCharging &&
+            !current.isRightCharging &&
+            (scalarPct - activeSinglePct >= 15)
+        if (swapped) {
+          nextLeft = null
+          nextRight = null
+          nextCombined = scalarPct
+        } else {
+          nextLeft = if (current.leftPercent != null) scalarPct else null
+          nextRight = if (current.rightPercent != null) scalarPct else null
+          nextCombined = null
+        }
+      } else if (current.leftPercent == null && current.rightPercent == null) {
+        nextLeft = null
+        nextRight = null
+        nextCombined = scalarPct ?: current.combinedPercent
+      } else {
+        nextLeft = current.leftPercent
+        nextRight = current.rightPercent
+        nextCombined = null
+      }
       nextCase =
         if (payload.isLidOpen == true || payload.isCaseCharging) {
           TwsBatteryParser.quantizeToFive(payload.casePercent)
@@ -677,9 +783,11 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
     val telemetryChanged =
       nextLeft != current.leftPercent ||
         nextRight != current.rightPercent ||
+        nextCombined != current.combinedPercent ||
         nextCase != current.casePercent ||
         payload.isLeftCharging != current.isLeftCharging ||
         payload.isRightCharging != current.isRightCharging ||
+        payload.isCombinedCharging != current.isCombinedCharging ||
         payload.isCaseCharging != current.isCaseCharging ||
         payload.protocol != current.protocolSource ||
         !current.isConnected
@@ -690,11 +798,13 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
       current.copy(
         leftPercent = nextLeft,
         rightPercent = nextRight,
+        combinedPercent = nextCombined,
         casePercent = nextCase,
         isLeftCharging = payload.isLeftCharging,
         isRightCharging = payload.isRightCharging,
+        isCombinedCharging = payload.isCombinedCharging,
         isCaseCharging = payload.isCaseCharging,
-        isLidOpen = payload.isLidOpen ?: current.isLidOpen,
+        isLidOpen = payload.isLidOpen ?: if (isPerBudReading) null else current.isLidOpen,
         protocolSource = payload.protocol,
         isConnected = true,
         isPreviewMode = false,
@@ -753,14 +863,17 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
               val next = batteryChars.removeFirstOrNull()
               if (next == null) {
                 if (readings.isNotEmpty()) {
-                  val left = readings.getOrNull(0)
-                  val right = readings.getOrNull(1) ?: left
+                  val hasMultipleBudReadings = readings.size >= 2
+                  val left = if (hasMultipleBudReadings) readings[0] else null
+                  val right = if (hasMultipleBudReadings) readings[1] else null
+                  val combined = if (hasMultipleBudReadings) null else readings[0]
                   val caseVal = readings.getOrNull(2)
                   scope.launch {
                     applyParsedTelemetry(
                       ParsedBatteryPayload(
                         leftPercent = left,
                         rightPercent = right,
+                        combinedPercent = combined,
                         casePercent = caseVal,
                         protocol = BatteryProtocol.GATT_BATTERY,
                       ),

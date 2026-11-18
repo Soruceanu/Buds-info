@@ -70,5 +70,21 @@ class NotificationLayoutTest {
     assertEquals("\u26A1\uFE0EЛ: 100%   П: 90%   К: 70%", openTitle.toString())
     val spans = (openTitle as Spanned).getSpans(0, openTitle.length, ForegroundColorSpan::class.java)
     assertTrue(spans.any { it.foregroundColor == 0xFF10B981.toInt() })
+
+    val scalarState =
+      TwsBatteryState(
+        deviceName = "Redmi Buds 6 Pro",
+        protocolSource = BatteryProtocol.BLUETOOTH_CLASSIC,
+        combinedPercent = 45,
+        isConnected = true,
+        isShadeWidgetActive = true,
+      )
+    assertEquals("Заряд: 45%", TwsNotificationHelper.formatSummaryLine(scalarState))
+    val scalarNotification =
+      TwsNotificationHelper.buildShadeWidgetNotification(context, scalarState, settings)
+    assertEquals(
+      "Заряд: 45%",
+      scalarNotification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString(),
+    )
   }
 }

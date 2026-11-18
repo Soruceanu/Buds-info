@@ -37,9 +37,11 @@ object TwsNotificationHelper {
   private data class WidgetSnapshot(
     val leftPercent: Int?,
     val rightPercent: Int?,
+    val combinedPercent: Int?,
     val casePercent: Int?,
     val isLeftCharging: Boolean,
     val isRightCharging: Boolean,
+    val isCombinedCharging: Boolean,
     val isCaseCharging: Boolean,
     val showCaseInCompact: Boolean,
   ) {
@@ -48,9 +50,11 @@ object TwsNotificationHelper {
         WidgetSnapshot(
           leftPercent = TwsBatteryParser.quantizeToFive(state.leftPercent),
           rightPercent = TwsBatteryParser.quantizeToFive(state.rightPercent),
+          combinedPercent = TwsBatteryParser.quantizeToFive(state.combinedPercent),
           casePercent = TwsBatteryParser.quantizeToFive(state.casePercent),
           isLeftCharging = state.isLeftCharging,
           isRightCharging = state.isRightCharging,
+          isCombinedCharging = state.isCombinedCharging,
           isCaseCharging = state.isCaseCharging,
           showCaseInCompact = settings.showCaseInCompact,
         )
@@ -204,6 +208,9 @@ object TwsNotificationHelper {
     val parts = mutableListOf<String>()
     TwsBatteryParser.quantizeToFive(state.leftPercent)?.let { parts += "Л: $it%" }
     TwsBatteryParser.quantizeToFive(state.rightPercent)?.let { parts += "П: $it%" }
+    if (state.leftPercent == null && state.rightPercent == null) {
+      TwsBatteryParser.quantizeToFive(state.combinedPercent)?.let { parts += "Заряд: $it%" }
+    }
     TwsBatteryParser.quantizeToFive(state.casePercent)?.let { parts += "К: $it%" }
     return if (parts.isEmpty()) "Подключены" else parts.joinToString("  ")
   }
@@ -212,6 +219,9 @@ object TwsNotificationHelper {
     val builder = SpannableStringBuilder()
     appendSlot(builder, "Л", snapshot.leftPercent, snapshot.isLeftCharging)
     appendSlot(builder, "П", snapshot.rightPercent, snapshot.isRightCharging)
+    if (snapshot.leftPercent == null && snapshot.rightPercent == null && snapshot.combinedPercent != null) {
+      appendSlot(builder, "Заряд", snapshot.combinedPercent, snapshot.isCombinedCharging)
+    }
     if (snapshot.showCaseInCompact) {
       appendSlot(builder, "К", snapshot.casePercent, snapshot.isCaseCharging)
     }

@@ -25,9 +25,11 @@ data class TwsBatteryState(
   val protocolSource: BatteryProtocol = BatteryProtocol.DISCONNECTED,
   val leftPercent: Int? = null,
   val rightPercent: Int? = null,
+  val combinedPercent: Int? = null,
   val casePercent: Int? = null,
   val isLeftCharging: Boolean = false,
   val isRightCharging: Boolean = false,
+  val isCombinedCharging: Boolean = false,
   val isCaseCharging: Boolean = false,
   val isLidOpen: Boolean? = null,
   val isConnected: Boolean = false,
@@ -38,10 +40,10 @@ data class TwsBatteryState(
   val lastUpdatedMillis: Long = 0L,
 ) {
   val hasAnyBatteryReading: Boolean
-    get() = leftPercent != null || rightPercent != null || casePercent != null
+    get() = leftPercent != null || rightPercent != null || combinedPercent != null || casePercent != null
 
   val minimumBudBattery: Int?
-    get() = listOfNotNull(leftPercent, rightPercent).minOrNull()
+    get() = listOfNotNull(leftPercent, rightPercent, combinedPercent).minOrNull()
 }
 
 data class PairedAudioDevice(
