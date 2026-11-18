@@ -8,10 +8,12 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.content.res.Configuration
+import android.graphics.Typeface
 import android.os.Build
-import android.view.View
-import android.widget.RemoteViews
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -113,16 +115,12 @@ object TwsNotificationHelper {
       )
 
     val snapshot = WidgetSnapshot.from(state, settings)
-    val compactViews = buildCompactRemoteViews(context, snapshot)
-    val summaryText = formatSummaryLine(state)
+    val titleText = buildStyledTitle(snapshot)
 
     return NotificationCompat.Builder(context, CHANNEL_WIDGET_ID)
       .setSmallIcon(R.drawable.ic_earbuds_notif)
-      .setContentTitle(summaryText)
-      .setContentText(summaryText)
+      .setContentTitle(titleText)
       .setContentIntent(openAppIntent)
-      .setStyle(NotificationCompat.DecoratedCustomViewStyle())
-      .setCustomContentView(compactViews)
       .setShowWhen(false)
       .setWhen(0L)
       .setOngoing(true)
@@ -210,79 +208,68 @@ object TwsNotificationHelper {
     return if (parts.isEmpty()) "Подключены" else parts.joinToString("  ")
   }
 
-  private fun buildCompactRemoteViews(
-    context: Context,
-    snapshot: WidgetSnapshot,
-  ): RemoteViews {
-    val views = RemoteViews(context.packageName, R.layout.notification_tws_compact)
-    val isDark = isSystemDarkTheme(context)
-
-    bindSlot(
-      views = views,
-      containerId = R.id.compact_left_container,
-      textId = R.id.compact_left_text,
-      boltId = R.id.compact_left_bolt,
-      prefix = "Л",
-      percent = snapshot.leftPercent,
-      isCharging = snapshot.isLeftCharging,
-      isDark = isDark,
-    )
-
-    bindSlot(
-      views = views,
-      containerId = R.id.compact_right_container,
-      textId = R.id.compact_right_text,
-      boltId = R.id.compact_right_bolt,
-      prefix = "П",
-      percent = snapshot.rightPercent,
-      isCharging = snapshot.isRightCharging,
-      isDark = isDark,
-    )
-
-    bindSlot(
-      views = views,
-      containerId = R.id.compact_case_container,
-      textId = R.id.compact_case_text,
-      boltId = R.id.compact_case_bolt,
-      prefix = "К",
-      percent = if (snapshot.showCaseInCompact) snapshot.casePercent else null,
-      isCharging = snapshot.isCaseCharging,
-      isDark = isDark,
-    )
-
-    return views
+  private fun buildStyledTitle(snapshot: WidgetSnapshot): CharSequence {
+    val builder = SpannableStringBuilder()
+    appendSlot(builder, "Л", snapshot.leftPercent, snapshot.isLeftCharging)
+    appendSlot(builder, "П", snapshot.rightPercent, snapshot.isRightCharging)
+    if (snapshot.showCaseInCompact) {
+      appendSlot(builder, "К", snapshot.casePercent, snapshot.isCaseCharging)
+    }
+    if (builder.isEmpty()) {
+      builder.append("Подключены")
+      builder.setSpan(
+        StyleSpan(Typeface.BOLD),
+        0,
+        builder.length,
+        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+      )
+    }
+    return builder
   }
 
-  private fun isSystemDarkTheme(context: Context): Boolean {
-    val nightMask = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
-    return nightMask == Configuration.UI_MODE_NIGHT_YES
-  }
-
-  private fun bindSlot(
-    views: RemoteViews,
-    containerId: Int,
-    textId: Int,
-    boltId: Int,
+  private fun appendSlot(
+    builder: SpannableStringBuilder,
     prefix: String,
     percent: Int?,
     isCharging: Boolean,
-    isDark: Boolean,
   ) {
-    if (percent == null) {
-      views.setViewVisibility(containerId, View.GONE)
-      return
+    if (percent == null) return
+    if (builder.isNotEmpty()) {
+      builder.append("   ")
     }
-    views.setViewVisibility(containerId, View.VISIBLE)
-    views.setTextViewText(textId, "$prefix: $percent%")
-
-    val textColor =
-      when {
-        isCharging -> if (isDark) 0xFFF8FAFC.toInt() else 0xFF111827.toInt()
-        percent <= 20 -> if (isDark) 0xFFFF5263.toInt() else 0xFFDC2626.toInt()
-        percent <= 45 -> if (isDark) 0xFFFF8A3D.toInt() else 0xFFEA580C.toInt()
-        else -> if (isDark) 0xFFF8FAFC.toInt() else 0xFF111827.toInt()
+    if (isCharging) {
+      val boltStart = builder.length
+      builder.append("\u26A1\uFE0E")
+      builder.setSpan(
+        ForegroundColorSpan(0xFF10B981.toInt()),
+        boltStart,
+        builder.length,
+        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+      )
+    }
+    val textStart = builder.length
+    builder.append("$prefix: $percent%")
+    builder.setSpan(
+      StyleSpan(Typeface.BOLD),
+      textStart,
+      builder.length,
+      Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+    )
+    if (!isCharging) {
+      val tint =
+        when {
+          percent <= 20 -> 0xFFEF4444.toInt()
+          percent <= 45 -> 0xFFF97316.toInt()
+          else -> null
+        }
+      if (tint != null) {
+        builder.setSpan(
+          ForegroundColorSpan(tint),
+          textStart,
+          builder.length,
+          Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+        )
       }
-    views.setTextColor(textId, textColor)
-    views.setViewVisibility(boltId, if (isCharging) View.VISIBLE else View.GONE)
+    }
   }
 }

@@ -107,7 +107,7 @@ object TwsBatteryParser {
               BatteryProtocol.FAST_PAIR_BLE,
             )
           if (parsed != null) {
-            return parsed.copy(isLidOpen = (type == 0x03))
+            return if (type == 0x04) parsed.copy(isLidOpen = false) else parsed
           }
         }
         idx += 1 + length

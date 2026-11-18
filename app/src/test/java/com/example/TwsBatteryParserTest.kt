@@ -39,7 +39,7 @@ class TwsBatteryParserTest {
     assertFalse(parsed.isLeftCharging)
     assertTrue(parsed.isRightCharging)
     assertTrue(parsed.isCaseCharging)
-    assertEquals(true, parsed.isLidOpen)
+    assertNull(parsed.isLidOpen)
     assertEquals(BatteryProtocol.FAST_PAIR_BLE, parsed.protocol)
   }
 

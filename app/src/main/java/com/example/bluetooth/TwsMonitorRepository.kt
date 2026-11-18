@@ -611,15 +611,11 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
 
     var validPayload = parsed ?: return
     if (validPayload.isLidOpen == null) {
-      val recentLid =
-        if (System.currentTimeMillis() - recentFastPairLidMs < BLE_FRESH_TIMEOUT_MS) {
-          recentFastPairLidOpen
-        } else {
-          null
-        }
-      val resolvedLid = fastPairPayload?.isLidOpen ?: recentLid
-      if (resolvedLid != null) {
-        validPayload = validPayload.copy(isLidOpen = resolvedLid)
+      val recentClosed =
+        (System.currentTimeMillis() - recentFastPairLidMs < BLE_FRESH_TIMEOUT_MS) &&
+          recentFastPairLidOpen == false
+      if (fastPairPayload?.isLidOpen == false || recentClosed) {
+        validPayload = validPayload.copy(isLidOpen = false)
       }
     }
     if (current.isConnected && !isSameAddress && !isKnownName && current.deviceAddress != null) {
@@ -652,14 +648,10 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
       lastBlePacketMs = System.currentTimeMillis()
       hasActiveBlePerBudTelemetry = true
       val lidOpenConfirmed = payload.isLidOpen == true
-      val oneBudInCase = payload.isLeftCharging xor payload.isRightCharging
-      val caseDefinitelyClosed =
-        payload.isLidOpen == false ||
-          (!lidOpenConfirmed &&
-            !payload.isLeftCharging &&
-            !payload.isRightCharging &&
-            !payload.isCaseCharging) ||
-          (!lidOpenConfirmed && oneBudInCase)
+      val anyCharging = payload.isLeftCharging || payload.isRightCharging || payload.isCaseCharging
+      val showCase =
+        payload.isLidOpen != false &&
+          (payload.isCaseCharging || (lidOpenConfirmed && anyCharging))
       val rawLeft = TwsBatteryParser.quantizeToFive(payload.leftPercent)
       val rawRight = TwsBatteryParser.quantizeToFive(payload.rightPercent)
       nextLeft =
@@ -669,7 +661,7 @@ class TwsMonitorRepository private constructor(private val appContext: Context) 
         if (!lidOpenConfirmed && payload.isRightCharging && !payload.isLeftCharging) null
         else rawRight
       nextCase =
-        if (caseDefinitelyClosed) null
+        if (!showCase) null
         else TwsBatteryParser.quantizeToFive(payload.casePercent)
     } else {
       nextLeft = TwsBatteryParser.quantizeToFive(payload.leftPercent) ?: current.leftPercent

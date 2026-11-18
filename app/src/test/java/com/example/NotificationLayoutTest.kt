@@ -1,10 +1,10 @@
 package com.example
 
+import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
-import android.view.View
-import android.widget.FrameLayout
-import android.widget.TextView
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import androidx.test.core.app.ApplicationProvider
 import com.example.model.AppSettings
 import com.example.model.BatteryProtocol
@@ -12,6 +12,8 @@ import com.example.model.TwsBatteryState
 import com.example.notification.TwsNotificationHelper
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -22,7 +24,7 @@ import org.robolectric.annotation.Config
 class NotificationLayoutTest {
 
   @Test
-  fun `shade widget hides closed case and bud in closed case while showing active buds`() {
+  fun `shade widget renders single-line non-expandable compact notification hiding closed case`() {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val state =
       TwsBatteryState(
@@ -42,21 +44,16 @@ class NotificationLayoutTest {
     assertEquals("П: 90%", TwsNotificationHelper.formatSummaryLine(state))
 
     val notification = TwsNotificationHelper.buildShadeWidgetNotification(context, state, settings)
-    assertNotNull(notification.contentView)
-    assertEquals(null, notification.bigContentView)
-    assertEquals(false, notification.extras.getBoolean(android.app.Notification.EXTRA_SHOW_WHEN, true))
+    assertNull(notification.contentView)
+    assertNull(notification.bigContentView)
+    assertNull(notification.extras.getCharSequence(Notification.EXTRA_TEXT))
+    assertEquals(false, notification.extras.getBoolean(Notification.EXTRA_SHOW_WHEN, true))
+    assertEquals("П: 90%", notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString())
 
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     val channel = manager.getNotificationChannel(TwsNotificationHelper.CHANNEL_WIDGET_ID)
     assertNotNull(channel)
     assertEquals(NotificationManager.IMPORTANCE_MIN, channel.importance)
-
-    val parent = FrameLayout(context)
-    val compactView = notification.contentView.apply(context, parent)
-    assertEquals(View.GONE, compactView.findViewById<View>(R.id.compact_left_container).visibility)
-    assertEquals(View.VISIBLE, compactView.findViewById<View>(R.id.compact_right_container).visibility)
-    assertEquals(View.GONE, compactView.findViewById<View>(R.id.compact_case_container).visibility)
-    assertEquals("П: 90%", compactView.findViewById<TextView>(R.id.compact_right_text).text.toString())
 
     // Open case with left bud charging and right bud in ear
     val openCaseState =
@@ -68,13 +65,10 @@ class NotificationLayoutTest {
       )
     val openNotification =
       TwsNotificationHelper.buildShadeWidgetNotification(context, openCaseState, settings)
-    val openCompactView = openNotification.contentView.apply(context, parent)
-    assertEquals(View.VISIBLE, openCompactView.findViewById<View>(R.id.compact_left_container).visibility)
-    assertEquals(View.VISIBLE, openCompactView.findViewById<View>(R.id.compact_left_bolt).visibility)
-    assertEquals("Л: 100%", openCompactView.findViewById<TextView>(R.id.compact_left_text).text.toString())
-    assertEquals(View.VISIBLE, openCompactView.findViewById<View>(R.id.compact_right_container).visibility)
-    assertEquals(View.GONE, openCompactView.findViewById<View>(R.id.compact_right_bolt).visibility)
-    assertEquals(View.VISIBLE, openCompactView.findViewById<View>(R.id.compact_case_container).visibility)
-    assertEquals("К: 70%", openCompactView.findViewById<TextView>(R.id.compact_case_text).text.toString())
+    val openTitle = openNotification.extras.getCharSequence(Notification.EXTRA_TITLE)
+    assertNotNull(openTitle)
+    assertEquals("\u26A1\uFE0EЛ: 100%   П: 90%   К: 70%", openTitle.toString())
+    val spans = (openTitle as Spanned).getSpans(0, openTitle.length, ForegroundColorSpan::class.java)
+    assertTrue(spans.any { it.foregroundColor == 0xFF10B981.toInt() })
   }
 }
